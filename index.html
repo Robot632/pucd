@@ -85,8 +85,6 @@ h1{font-family:"Bricolage Grotesque",system-ui,sans-serif;font-weight:800;font-s
 .endbtn{font:800 .9rem "Bricolage Grotesque",system-ui,sans-serif;background:none;color:var(--stamp);border:2px solid var(--stamp);border-radius:3px;padding:8px 16px;cursor:pointer}
 .endbtn:hover{background:var(--stamp);color:var(--paper)}
 .endbtn:disabled{opacity:.35;cursor:default}
-.rank{font:800 .8rem "Bricolage Grotesque",system-ui,sans-serif;text-transform:uppercase;letter-spacing:.06em;color:var(--stamp);margin:18px 0 6px}
-.rank:first-of-type{margin-top:0}
 .rolebox{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px}
 .rolebox select,.rolebox input{width:auto;flex:1 1 160px}
 </style>
@@ -107,6 +105,9 @@ const TITLE = "Colonia P.U.C.D.";
 const SUBTITLE = "Alege o variantă la fiecare întrebare, apoi apasă „Votează”.";
 // Funcțiile care apar mereu în listă (în plus se pot scrie altele noi).
 const ROLES = ["Presedinte", "Vicepresedinte", "Premier", "Securitate", "Cetatean"];
+// Fondatorul (unul singur) numește președinții; președintele devine admin.
+const isPres = r => /^pre[sș]edinte$/i.test((r || "").trim());
+const isFounderRole = r => /^fondator$/i.test((r || "").trim());
 
 document.getElementById("title").textContent = TITLE;
 document.title = TITLE;
@@ -147,6 +148,7 @@ function markVoted(id, c){ try{ localStorage.setItem(key(id), c); }catch(e){} }
 function logout(){ try{ localStorage.removeItem("cod_membru"); sessionStorage.removeItem("debug_role"); }catch(e){} CODE = null; start(); }
 
 let ADMIN = false;
+let FOUNDER = false;
 let OUTCOME = {};
 // recrutări respinse / fără cvorum: nu apar în istoric
 const rejected = o => /respins|neadoptat|cvorum|nu a trecut|egalitate/i.test(String(o || "").normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
@@ -158,7 +160,7 @@ function noteEl(q){
   let t = "";
   if(isClosed(q)) t = "Votul s-a închis.";
   else if(q.closes_at) t = "Se închide pe " + fmt(q.closes_at) + ".";
-  if(q.secret) t += (t ? " " : "") + "Rezultatele sunt vizibile doar pentru comandant.";
+  if(q.secret) t += (t ? " " : "") + "Rezultatele sunt vizibile doar pentru conducere.";
   else if(hiddenRes(q)) t += (t ? " " : "") + "Rezultatele se văd după închiderea votului.";
   if(q.kind === "lege" || q.kind === "recrutare"){
     const thr = q.threshold >= 99 ? "unanimitate" : q.threshold >= 66 ? "două treimi" : "peste jumătate";
@@ -183,7 +185,7 @@ async function copyText(text, btn){
 }
 
 function renderLogin(){
-  sub.textContent = "Site-ul coloniei este doar pentru membri. Introdu codul primit de la comandant.";
+  sub.textContent = "Site-ul coloniei este doar pentru membri. Introdu codul primit de la fondator.";
   wrap.innerHTML = `<section class="ballot login"><h2>Codul tău de membru</h2><input id="cod" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Cod de membru"><button class="go" id="intra">Intră</button><p class="msg" role="alert"></p></section>`;
   const inp = wrap.querySelector("#cod"), msg = wrap.querySelector(".msg"), btn = wrap.querySelector("#intra");
   const submit = async () => {
@@ -259,7 +261,7 @@ async function renderAdmin(questions, archived = []){
 
   const panel = document.createElement("section");
   panel.className = "ballot admin";
-  panel.innerHTML = '<div class="admin-head">Panou comandant</div><div class="admin-body"></div>';
+  panel.innerHTML = '<div class="admin-head">' + (FOUNDER ? "Panou fondator" : "Panou președinte") + '</div><div class="admin-body"></div>';
   const body = panel.querySelector(".admin-body");
   if(!questions.length && !archived.length){
     const p = document.createElement("p"); p.className = "total"; p.style.margin = "0 0 16px";
@@ -506,6 +508,7 @@ async function renderAdmin(questions, archived = []){
 
   const mp = document.createElement("section"); mp.className = "ballot poll";
   mp.innerHTML = `<div class="admin-head">Membri</div><div class="admin-body">
+    <p class="total" style="margin:0 0 14px">${FOUNDER ? "Ești fondatorul coloniei. Cine primește funcția <b>Presedinte</b> devine admin ca tine; dacă îi schimbi funcția, nu mai e admin." : "Poți da funcții membrilor. Doar fondatorul numește președinții."}</p>
     <label class="lbl" for="mn">Membru nou</label>
     <input id="mn" placeholder="Nume" autocomplete="off">
     <select id="mr" aria-label="Funcție"></select>
@@ -519,8 +522,9 @@ async function renderAdmin(questions, archived = []){
   const sel = mp.querySelector("#mr"), rnew = mp.querySelector("#mrnew");
   const addOption = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; sel.appendChild(o); };
   addOption("", "Alege funcția");
-  const extra = [...new Set(members.filter(m => !m.is_debug).map(m => m.role).filter(r => r && !ROLES.includes(r)))].sort((a, b) => a.localeCompare(b, "ro"));
-  const allRoles = [...ROLES, ...extra];
+  const extra = [...new Set(members.filter(m => !m.is_debug).map(m => m.role).filter(r => r && !ROLES.includes(r) && !isFounderRole(r)))].sort((a, b) => a.localeCompare(b, "ro"));
+  // doar fondatorul poate numi președintele
+  const allRoles = [...ROLES, ...extra].filter(r => FOUNDER || !isPres(r));
   allRoles.forEach(x => addOption(x, x));
   addOption("__new", "+ Altă funcție…");
   sel.onchange = () => { rnew.hidden = sel.value !== "__new"; if(!rnew.hidden) rnew.focus(); };
@@ -528,12 +532,15 @@ async function renderAdmin(questions, archived = []){
   members.forEach(m => {
     const row = document.createElement("div"); row.className = "mrow";
     const left = document.createElement("div");
-    const nm = document.createElement("div"); nm.textContent = m.name + (m.role ? " · " + m.role : "") + (m.is_admin ? " (admin)" : m.is_debug ? " (test)" : "");
+    const founder = m.is_admin && isFounderRole(m.role);
+    const nm = document.createElement("div"); nm.textContent = m.name + (m.role ? " · " + m.role : "") + (founder ? " (fondator)" : m.is_admin ? " (admin)" : m.is_debug ? " (test)" : "");
     const cd = document.createElement("div"); cd.className = "code"; cd.textContent = m.code;
     left.append(nm, cd); row.appendChild(left);
     const act = document.createElement("div");
     const cb = document.createElement("button"); cb.className = "link"; cb.style.margin = "0 10px 0 0"; cb.textContent = "Copiază cod"; cb.onclick = () => copyText(m.code, cb); act.appendChild(cb);
-    if(!m.is_debug){
+    // fondatorul nu poate fi schimbat; adminii (președinții) doar de fondator
+    const canManage = !founder && (!m.is_admin || FOUNDER);
+    if(!m.is_debug && canManage){
       const fb = document.createElement("button"); fb.className = "link"; fb.style.margin = "0 10px 0 0"; fb.textContent = "Funcție";
       fb.onclick = () => {
         const old = left.querySelector(".rolebox"); if(old){ old.remove(); return; }
@@ -555,7 +562,7 @@ async function renderAdmin(questions, archived = []){
       };
       act.appendChild(fb);
     }
-    if(!m.is_admin){
+    if(canManage){
       const nb = document.createElement("button"); nb.className = "link"; nb.style.margin = "0 10px 0 0"; nb.textContent = "Cod nou";
       nb.onclick = async () => {
         if(!confirm("Generezi cod nou pentru " + m.name + "? Codul vechi nu va mai funcționa.")) return;
@@ -632,8 +639,9 @@ async function start(){
     sub.appendChild(ch);
   }
 
-  ADMIN = false;
+  ADMIN = false; FOUNDER = false;
   try{ ADMIN = await rpc("is_admin", { p_code: CODE }) === true; }catch(e){}
+  try{ FOUNDER = ADMIN && await rpc("is_founder", { p_code: CODE }) === true; }catch(e){ FOUNDER = ADMIN && isFounderRole(role); }
   let questions = [];
   try{ questions = await rpc("list_questions", { p_code: CODE, p_role: DEBUG ? role : null }); }catch(e){ sub.textContent = e.message; return; }
   OUTCOME = {};
@@ -670,21 +678,6 @@ async function start(){
         const a = document.createElement("span"); a.textContent = x.subject || "-";
         const b = document.createElement("b"); b.textContent = x.outcome + (x.decided_at ? " · " + fmtD(x.decided_at) : "");
         d.append(a, b); sec.appendChild(d);
-      });
-      wrap.appendChild(sec);
-    }
-  }catch(e){}
-  try{
-    const army = await rpc("army_roster", { p_code: CODE });
-    if(army.length){
-      const sec = document.createElement("section"); sec.className = "ballot"; sec.innerHTML = "<h2>Armata coloniei (" + army.length + ")</h2>";
-      const groups = new Map();
-      army.forEach(x => { const k = x.role || "Fără funcție"; if(!groups.has(k)) groups.set(k, []); groups.get(k).push(x.name); });
-      groups.forEach((names, r) => {
-        const h = document.createElement("div"); h.className = "rank"; h.textContent = r + " · " + names.length; sec.appendChild(h);
-        const ch = document.createElement("div"); ch.className = "chips";
-        names.forEach(n => { const c = document.createElement("span"); c.className = "chip"; c.textContent = n; ch.appendChild(c); });
-        sec.appendChild(ch);
       });
       wrap.appendChild(sec);
     }
