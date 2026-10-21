@@ -133,15 +133,6 @@ begin
     where m.role is not null and not m.is_debug order by 1;
 end $$;
 
--- Armata coloniei: nume + funcție (fără coduri), vizibilă pentru toți membrii.
-create or replace function army_roster(p_code text) returns table(name text, role text)
-language plpgsql stable security definer set search_path = public as $$
-begin
-  perform _member(p_code);
-  return query select m.name, m.role from members m
-    where not m.is_debug order by m.role nulls last, m.name;
-end $$;
-
 create or replace function list_questions(p_code text, p_role text default null) returns setof questions
 language plpgsql stable security definer set search_path = public as $$
 declare m members; r text;
@@ -354,7 +345,7 @@ end $$;
 revoke execute on function _member(text), _admin(text), _is_closed(questions), _outcome(questions),
   _is_president_role(text), _is_founder(members) from public, anon, authenticated;
 grant execute on function
-  member_name(text), member_role(text), is_admin(text), is_debug(text), is_founder(text), role_options(text), army_roster(text),
+  member_name(text), member_role(text), is_admin(text), is_debug(text), is_founder(text), role_options(text),
   list_questions(text, text), cast_vote(text, bigint, text), get_results(text, bigint),
   question_outcomes(text), recruitment_history(text),
   admin_votes(text), admin_members(text),

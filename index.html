@@ -85,8 +85,6 @@ h1{font-family:"Bricolage Grotesque",system-ui,sans-serif;font-weight:800;font-s
 .endbtn{font:800 .9rem "Bricolage Grotesque",system-ui,sans-serif;background:none;color:var(--stamp);border:2px solid var(--stamp);border-radius:3px;padding:8px 16px;cursor:pointer}
 .endbtn:hover{background:var(--stamp);color:var(--paper)}
 .endbtn:disabled{opacity:.35;cursor:default}
-.rank{font:800 .8rem "Bricolage Grotesque",system-ui,sans-serif;text-transform:uppercase;letter-spacing:.06em;color:var(--stamp);margin:18px 0 6px}
-.rank:first-of-type{margin-top:0}
 .rolebox{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px}
 .rolebox select,.rolebox input{width:auto;flex:1 1 160px}
 </style>
@@ -680,21 +678,6 @@ async function start(){
         const a = document.createElement("span"); a.textContent = x.subject || "-";
         const b = document.createElement("b"); b.textContent = x.outcome + (x.decided_at ? " · " + fmtD(x.decided_at) : "");
         d.append(a, b); sec.appendChild(d);
-      });
-      wrap.appendChild(sec);
-    }
-  }catch(e){}
-  try{
-    const army = await rpc("army_roster", { p_code: CODE });
-    if(army.length){
-      const sec = document.createElement("section"); sec.className = "ballot"; sec.innerHTML = "<h2>Armata coloniei (" + army.length + ")</h2>";
-      const groups = new Map();
-      army.forEach(x => { const k = x.role || "Fără funcție"; if(!groups.has(k)) groups.set(k, []); groups.get(k).push(x.name); });
-      groups.forEach((names, r) => {
-        const h = document.createElement("div"); h.className = "rank"; h.textContent = r + " · " + names.length; sec.appendChild(h);
-        const ch = document.createElement("div"); ch.className = "chips";
-        names.forEach(n => { const c = document.createElement("span"); c.className = "chip"; c.textContent = n; ch.appendChild(c); });
-        sec.appendChild(ch);
       });
       wrap.appendChild(sec);
     }
