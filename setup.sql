@@ -12,7 +12,8 @@ do $$ declare f record; begin
              'role_options','army_roster','list_questions','cast_vote','get_results','question_outcomes',
              'recruitment_history','admin_votes','admin_members','add_question','edit_question',
              'set_question_closed','set_question_deadline','delete_question','add_member','set_member_role',
-             'set_member_admin','regenerate_code','delete_member')
+             'set_member_admin','regenerate_code','delete_member',
+             '_is_president_role','_is_founder','is_founder')
   loop execute 'drop function if exists ' || f.sig || ' cascade'; end loop;
 end $$;
 
@@ -277,50 +278,83 @@ begin
   delete from questions where id = p_id;
 end $$;
 
+create or replace function _is_president_role(r text) returns boolean
+language sql immutable as $$
+  select lower(trim(coalesce(r, ''))) in ('presedinte', 'președinte')
+$$;
+
+create or replace function _is_founder(m members) returns boolean
+language sql immutable as $$
+  select m.is_admin and lower(trim(coalesce(m.role, ''))) = 'fondator'
+$$;
+
+create or replace function is_founder(p_code text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select _is_founder(m) from members m where m.code = p_code), false)
+$$;
+
 create or replace function add_member(p_code text, p_name text, p_role text) returns text
 language plpgsql security definer set search_path = public as $$
-declare c text;
+declare me members; c text;
 begin
-  perform _admin(p_code);
+  me := _admin(p_code);
   if coalesce(trim(p_name), '') = '' then raise exception 'nume invalid'; end if;
+  if lower(trim(coalesce(p_role, ''))) = 'fondator' then raise exception 'fondatorul este unul singur'; end if;
+  if _is_president_role(p_role) and not _is_founder(me) then
+    raise exception 'doar fondatorul poate numi presedintele';
+  end if;
   -- cine e Presedinte devine automat admin
   insert into members(name, role, is_admin)
-  values (trim(p_name), nullif(trim(p_role), ''), lower(trim(coalesce(p_role, ''))) in ('presedinte', 'președinte'))
+  values (trim(p_name), nullif(trim(p_role), ''), _is_president_role(p_role))
   returning code into c;
   return c;
 end $$;
 
 create or replace function set_member_role(p_code text, p_member text, p_role text) returns void
 language plpgsql security definer set search_path = public as $$
+declare me members; t members;
 begin
-  perform _admin(p_code);
-  update members set role = nullif(trim(p_role), ''),
-    is_admin = is_admin or lower(trim(coalesce(p_role, ''))) in ('presedinte', 'președinte')
-  where code = p_member and not is_debug;
+  me := _admin(p_code);
+  select * into t from members where code = p_member;
+  if not found or t.is_debug then raise exception 'membru invalid'; end if;
+  if _is_founder(t) then raise exception 'functia fondatorului nu se schimba'; end if;
+  if lower(trim(coalesce(p_role, ''))) = 'fondator' then raise exception 'fondatorul este unul singur'; end if;
+  if (t.is_admin or _is_president_role(p_role)) and not _is_founder(me) then
+    raise exception 'doar fondatorul poate numi sau schimba presedintele';
+  end if;
+  -- Presedinte => admin; orice alta functie => nu mai e admin
+  update members set role = nullif(trim(p_role), ''), is_admin = _is_president_role(p_role)
+  where code = p_member;
 end $$;
 
 create or replace function regenerate_code(p_code text, p_member text) returns text
 language plpgsql security definer set search_path = public as $$
-declare c text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 20);
+declare me members; t members; c text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 20);
 begin
-  perform _admin(p_code);
-  if (select is_admin from members where code = p_member) then raise exception 'cod admin'; end if;
+  me := _admin(p_code);
+  select * into t from members where code = p_member;
+  if not found then raise exception 'membru invalid'; end if;
+  if _is_founder(t) or (t.is_admin and not _is_founder(me)) then raise exception 'cod admin'; end if;
   update members set code = c where code = p_member;
   return c;
 end $$;
 
 create or replace function delete_member(p_code text, p_member text) returns void
 language plpgsql security definer set search_path = public as $$
+declare me members; t members;
 begin
-  perform _admin(p_code);
-  if (select is_admin from members where code = p_member) then raise exception 'nu poti sterge'; end if;
+  me := _admin(p_code);
+  select * into t from members where code = p_member;
+  if not found then return; end if;
+  if _is_founder(t) or (t.is_admin and not _is_founder(me)) then raise exception 'nu poti sterge'; end if;
   delete from members where code = p_member;
 end $$;
 
 -- ───────── Permisiuni ─────────
-revoke execute on function _member(text), _admin(text), _is_closed(questions), _outcome(questions) from public, anon, authenticated;
+revoke execute on function _member(text), _admin(text), _is_closed(questions), _outcome(questions),
+  _is_president_role(text), _is_founder(members) from public, anon, authenticated;
 grant execute on function
-  member_name(text), member_role(text), is_admin(text), is_debug(text), role_options(text), army_roster(text),
+  member_name(text), member_role(text), is_admin(text), is_debug(text), is_founder(text), role_options(text), army_roster(text),
   list_questions(text, text), cast_vote(text, bigint, text), get_results(text, bigint),
   question_outcomes(text), recruitment_history(text),
   admin_votes(text), admin_members(text),
@@ -332,8 +366,8 @@ grant execute on function
 to anon;
 
 -- ───────── Primii membri ─────────
--- Tu (admin) + contul de debug. Poți schimba numele/funcția înainte de Run.
+-- Tu (fondator: admin cu funcția „Fondator”) + contul de debug. Poți schimba numele/funcția înainte de Run.
 insert into members(name, role, is_admin) values ('Gabi', 'Fondator', true);
 insert into members(name, role, is_debug) values ('debug', null, true);
 
-select name, code, case when is_admin then 'ADMIN' else 'DEBUG' end as tip from members order by is_admin desc;
+select name, code, case when is_admin then 'FONDATOR' else 'DEBUG' end as tip from members order by is_admin desc;
