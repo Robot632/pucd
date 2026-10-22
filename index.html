@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;800&family=Source+Serif+4:wght@400;600&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#ecebe0;--paper:#fbfaf3;--ink:#283618;--mute:#626b52;--stamp:#9c3a12;--line:#cfd0bd;--bar:#283618;--gold:#d4a017}
-@media (prefers-color-scheme:dark){:root{--bg:#12150d;--paper:#1c2114;--ink:#eef0e2;--mute:#9da48b;--stamp:#f08a5d;--line:#343c26;--bar:#c9d38f;--gold:#e0b43a}}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#12150d;--paper:#1c2114;--ink:#eef0e2;--mute:#9da48b;--stamp:#f08a5d;--line:#343c26;--bar:#c9d38f;--gold:#e0b43a}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:"Source Serif 4",Georgia,serif;line-height:1.55;padding:24px 16px 60px}
 main{max-width:620px;margin:0 auto}
@@ -73,6 +73,7 @@ h1{font-family:"Bricolage Grotesque",system-ui,sans-serif;font-weight:800;font-s
 .poll #mn,.poll #mr,.poll #mrnew{margin-bottom:10px}
 .poll #mr{width:100%}
 .poll select{font:inherit;max-width:100%;padding:8px 2px;background:transparent;color:var(--ink);border:0;border-bottom:2px solid var(--line);border-radius:0}
+select option{background:var(--paper);color:var(--ink)}
 .editbox{border:1.5px dashed var(--line);border-radius:8px;padding:12px;margin:10px 0}
 .editbox input{font:inherit;width:100%;background:transparent;color:var(--ink);border:0;border-bottom:2px solid var(--line);border-radius:0;padding:8px 2px;margin:0 0 8px}
 .editbox input:focus{outline:0;border-bottom-color:var(--stamp)}
