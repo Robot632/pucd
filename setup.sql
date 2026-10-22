@@ -4,7 +4,7 @@
 -- La final îți afișează codul tău de admin și codul contului de debug.
 
 -- ───────── Ștergem tot ce era ─────────
-drop table if exists votes, questions, members cascade;
+drop table if exists laws, votes, questions, members cascade;
 do $$ declare f record; begin
   for f in select p.oid::regprocedure as sig from pg_proc p
            where p.pronamespace = 'public'::regnamespace and p.proname in (
@@ -13,7 +13,8 @@ do $$ declare f record; begin
              'recruitment_history','admin_votes','admin_members','add_question','edit_question',
              'set_question_closed','set_question_deadline','delete_question','add_member','set_member_role',
              'set_member_admin','regenerate_code','delete_member',
-             '_is_president_role','_is_founder','is_founder')
+             '_is_president_role','_is_founder','is_founder',
+             'list_laws','add_law','edit_law','delete_law')
   loop execute 'drop function if exists ' || f.sig || ' cascade'; end loop;
 end $$;
 
@@ -355,6 +356,66 @@ grant execute on function
   add_member(text, text, text), set_member_role(text, text, text),
   regenerate_code(text, text), delete_member(text, text)
 to anon;
+
+-- ───────── Legi ─────────
+create table if not exists laws (
+  id          bigint generated always as identity primary key,
+  law_text    text not null,
+  adopted_on  date not null default current_date,
+  question_id bigint unique references questions(id) on delete set null,
+  removed     boolean not null default false,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz
+);
+alter table laws enable row level security;
+revoke all on laws from anon, authenticated;
+
+drop function if exists list_laws(text);
+create function list_laws(p_code text)
+returns table(id bigint, law_text text, adopted_on date, updated_at timestamptz, from_vote boolean)
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _member(p_code);
+  -- legile adoptate prin vot intră singure în listă
+  insert into laws(law_text, adopted_on, question_id)
+  select q.question_text, (coalesce(q.decided_at, q.closes_at, now()) at time zone 'Europe/Bucharest')::date, q.id
+    from questions q
+   where q.kind = 'lege' and _outcome(q) = 'ADOPTAT'
+     and not exists (select 1 from laws l where l.question_id = q.id)
+  on conflict (question_id) do nothing;
+  return query select l.id, l.law_text, l.adopted_on, l.updated_at, l.question_id is not null
+    from laws l where not l.removed order by l.adopted_on, l.id;
+end $$;
+
+create or replace function add_law(p_code text, p_text text, p_date date) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare new_id bigint;
+begin
+  perform _admin(p_code);
+  if coalesce(trim(p_text), '') = '' then raise exception 'lege invalida'; end if;
+  insert into laws(law_text, adopted_on) values (trim(p_text), coalesce(p_date, current_date))
+  returning id into new_id;
+  return new_id;
+end $$;
+
+create or replace function edit_law(p_code text, p_id bigint, p_text text, p_date date) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _admin(p_code);
+  if coalesce(trim(p_text), '') = '' then raise exception 'lege invalida'; end if;
+  update laws set law_text = trim(p_text), adopted_on = coalesce(p_date, adopted_on), updated_at = now()
+  where id = p_id and not removed;
+end $$;
+
+create or replace function delete_law(p_code text, p_id bigint) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _admin(p_code);
+  -- rămâne în tabel ca să nu fie readusă automat din vot
+  update laws set removed = true, updated_at = now() where id = p_id;
+end $$;
+
+grant execute on function list_laws(text), add_law(text, text, date), edit_law(text, bigint, text, date), delete_law(text, bigint) to anon;
 
 -- ───────── Primii membri ─────────
 -- Tu (fondator: admin cu funcția „Fondator”) + contul de debug. Poți schimba numele/funcția înainte de Run.
