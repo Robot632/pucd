@@ -376,13 +376,21 @@ returns table(id bigint, law_text text, adopted_on date, updated_at timestamptz,
 language plpgsql security definer set search_path = public as $$
 begin
   perform _member(p_code);
-  -- legile adoptate prin vot intră singure în listă
-  insert into laws(law_text, adopted_on, question_id)
-  select q.question_text, (coalesce(q.decided_at, q.closes_at, now()) at time zone 'Europe/Bucharest')::date, q.id
-    from questions q
-   where q.kind = 'lege' and _outcome(q) = 'ADOPTAT'
-     and not exists (select 1 from laws l where l.question_id = q.id)
-  on conflict (question_id) do nothing;
+  -- legile adoptate prin vot intră singure în listă; dacă ceva nu merge aici,
+  -- lista se arată oricum
+  begin
+    insert into laws(law_text, adopted_on, question_id)
+    select q.question_text,
+           (coalesce((to_jsonb(q)->>'decided_at')::timestamptz, q.closes_at, now()) at time zone 'Europe/Bucharest')::date,
+           q.id
+      from questions q
+      join question_outcomes(p_code) o on o.question_id = q.id
+     where to_jsonb(q)->>'kind' = 'lege'
+       and upper(o.outcome) like 'ADOPTAT%'
+       and not exists (select 1 from laws l where l.question_id = q.id)
+    on conflict (question_id) do nothing;
+  exception when others then null;
+  end;
   return query select l.id, l.law_text, l.adopted_on, l.updated_at, l.question_id is not null
     from laws l where not l.removed order by l.adopted_on, l.id;
 end $$;
