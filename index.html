@@ -558,7 +558,7 @@ async function renderAdmin(questions, archived = []){
     const row = document.createElement("div"); row.className = "mrow";
     const left = document.createElement("div");
     const founder = m.is_admin && isFounderRole(m.role);
-    const nm = document.createElement("div"); nm.textContent = m.name + (m.role ? " · " + m.role : "") + (founder ? " (fondator)" : m.is_admin ? " (admin)" : m.is_debug ? " (test)" : "");
+    const nm = document.createElement("div"); nm.textContent = m.name + (m.role ? " · " + m.role : "") + (founder ? " (fondator)" : m.is_debug ? " (test)" : m.is_admin ? " (admin)" : "");
     const cd = document.createElement("div"); cd.className = "code"; cd.textContent = m.code;
     left.append(nm, cd); row.appendChild(left);
     const act = document.createElement("div");
@@ -822,6 +822,8 @@ async function start(){
 
   ADMIN = false; FOUNDER = false;
   try{ ADMIN = await rpc("is_admin", { p_code: CODE }) === true; }catch(e){}
+  // contul de test e admin doar când joacă rolul de președinte
+  if(DEBUG) ADMIN = ADMIN && isPres(role);
   try{ FOUNDER = ADMIN && await rpc("is_founder", { p_code: CODE }) === true; }catch(e){ FOUNDER = ADMIN && isFounderRole(role); }
   let questions = [];
   try{ questions = await rpc("list_questions", { p_code: CODE, p_role: DEBUG ? role : null }); }catch(e){ sub.textContent = e.message; return; }

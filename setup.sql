@@ -141,7 +141,8 @@ begin
   m := _member(p_code);
   r := case when m.is_debug then p_role else m.role end;
   return query select * from questions q
-    where m.is_admin or q.roles is null or r = any(q.roles)
+    where (m.is_admin and (not m.is_debug or lower(trim(coalesce(r, ''))) in ('presedinte', 'președinte')))
+       or q.roles is null or r = any(q.roles)
     order by q.created_at desc;
 end $$;
 
@@ -428,6 +429,7 @@ grant execute on function list_laws(text), add_law(text, text, date), edit_law(t
 -- ───────── Primii membri ─────────
 -- Tu (fondator: admin cu funcția „Fondator”) + contul de debug. Poți schimba numele/funcția înainte de Run.
 insert into members(name, role, is_admin) values ('Gabi', 'Fondator', true);
-insert into members(name, role, is_debug) values ('debug', null, true);
+-- debug e admin în bază; site-ul îi arată panoul doar când alege funcția Presedinte
+insert into members(name, role, is_admin, is_debug) values ('debug', null, true, true);
 
-select name, code, case when is_admin then 'FONDATOR' else 'DEBUG' end as tip from members order by is_admin desc;
+select name, code, case when is_debug then 'DEBUG' else 'FONDATOR' end as tip from members order by is_admin desc;
